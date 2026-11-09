@@ -5,6 +5,9 @@
  * `/v1/models` (with `X-Magpie-Prices: 1`), and the one catalogue test feeds it
  * through an injected `fetch`. Run: node tests/magpie.test.js
  */
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { PricingCatalog } from 'llm-pricing'
 import { DEFAULT_MAGPIE_URL, magpieModelsUrl, magpieSource, withMagpiePrices } from '../lib/magpie.js'
 
@@ -128,6 +131,63 @@ console.log('catalogue: pricing through the source')
   const withoutRequest = catalog.estimate(args)
   assert(Math.abs(asRequest.cost - 0.075) < 1e-9, '150k prompt tokens price at the tier rate ($0.075, got ' + asRequest.cost + ')')
   assert(Math.abs(withoutRequest.cost - 0.015) < 1e-9, 'without perRequest the tier is skipped ($0.015, got ' + withoutRequest.cost + ')')
+}
+
+console.log('catalogue: magpie is re-read hourly, models.dev is not')
+{
+  // The plugin keeps its catalogue caches on disk; pointing TMPDIR at a fresh
+  // directory (before the module is imported, so the module-level pricing gets
+  // it too) means every fetch below is a miss rather than last run's copy.
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-bill-magpie-refresh-'))
+  const savedTmpdir = process.env.TMPDIR
+  const savedFetch = globalThis.fetch
+  const savedNow = Date.now
+  process.env.TMPDIR = scratch
+
+  const DEV_BODY = JSON.stringify({
+    magpieprobe: { models: { 'plain/model': { cost: { input: 1.5, output: 3 }, name: 'Resale probe' } } },
+  })
+  const OPENROUTER_BODY = JSON.stringify({ data: [] })
+  const hits = { magpie: 0, dev: 0, openrouter: 0 }
+  const at = Date.parse('2026-11-09T12:00:00Z') // a Monday, off-peak
+  let clock = at
+
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    let body = OPENROUTER_BODY
+    if (url === DEFAULT_MAGPIE_URL) { hits.magpie++; body = JSON.stringify(FIXTURE) }
+    else if (url.includes('models.dev')) { hits.dev++; body = DEV_BODY }
+    else hits.openrouter++
+    return { ok: true, text: async () => body }
+  }
+  Date.now = () => clock
+
+  try {
+    const { createPricing } = await import('../lib/pricing.js')
+    const pricing = createPricing({ magpieUrl: DEFAULT_MAGPIE_URL })
+    await pricing.ensurePricingLoaded()
+    assert(hits.magpie === 1, 'the first load asks magpie (' + hits.magpie + ')')
+    assert(hits.dev === 1, 'and models.dev, once (' + hits.dev + ')')
+
+    // Both catalogues price this id; magpie's quote is the one it bills.
+    const rec = { model: 'plain/model', time: at, inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
+    assert(Math.abs(pricing.priceRecord(rec).usd - 0.15) < 1e-9, 'magpie beats models.dev on the same id (got ' + pricing.priceRecord(rec).usd + ')')
+
+    clock = at + 30 * 60 * 1000
+    await pricing.ensurePricingLoaded()
+    assert(hits.magpie === 1, 'half an hour later nothing is re-fetched')
+
+    clock = at + 61 * 60 * 1000
+    await pricing.ensurePricingLoaded()
+    assert(hits.magpie === 2, 'an hour later magpie is asked again (' + hits.magpie + ')')
+    assert(hits.dev === 1, 'models.dev still is not (' + hits.dev + ')')
+  } finally {
+    globalThis.fetch = savedFetch
+    Date.now = savedNow
+    if (savedTmpdir === undefined) delete process.env.TMPDIR
+    else process.env.TMPDIR = savedTmpdir
+    fs.rmSync(scratch, { recursive: true, force: true })
+  }
 }
 
 console.log(failed === 0 ? '\nALL PASSED' : `\n${failed} FAILED`)

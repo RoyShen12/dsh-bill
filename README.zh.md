@@ -67,7 +67,7 @@ dsh plugin --profile web add dsh-bill
 
 ## 计价
 
-- 配置了本机 magpie 网关时,目录首选 magpie 自己的价目表(调用实际走这个网关,它就是网关的扣费价),其次是 models.dev 与 OpenRouter;24h 缓存并落盘,失败回退内置历史快照;
+- 配置了本机 magpie 网关时,目录首选 magpie 自己的价目表(调用实际走这个网关,它就是网关的扣费价),其次是 models.dev 与 OpenRouter;magpie 的价目表每小时重取、models.dev 的 24h,各自落盘缓存,失败回退内置历史快照;
 - 长上下文阶梯价按单次请求的 prompt 长度选择:prompt 超过阈值的调用整单按该档费率计费,与厂商一致;
 - DeepSeek 官方直连价覆盖目录报价,按调用时刻自动选择峰谷价;
 - 提示词缓存写入按 provider 报告的实际时长计价:用量报告带 `cacheWrite1hTokens`(`cacheWriteTokens` 中写入 1 小时缓存的部分,Anthropic 在路由请求长缓存时返回)时,这部分按 1 小时写入计价,其余按 5 分钟写入计价;没有该字段时全部按 5 分钟写入计价;
