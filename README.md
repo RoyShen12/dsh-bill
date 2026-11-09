@@ -35,7 +35,7 @@ Restart `dsh web` to pick it up.
 
 Three substantive differences:
 
-**No hand-maintained price table.** Every other plugin ships a built-in table of 2–4 DeepSeek models, which means no prices at all once you switch provider — and which is why they all need a "edit the price table by hand" entry point. dsh-bill pulls models.dev and OpenRouter through [`llm-pricing`](https://github.com/Jannchie/llm-pricing), covering 8000+ entries, so a new model is priced the day it ships.
+**No hand-maintained price table.** Every other plugin ships a built-in table of 2–4 DeepSeek models, which means no prices at all once you switch provider — and which is why they all need a "edit the price table by hand" entry point. dsh-bill pulls models.dev and OpenRouter through [`llm-pricing`](https://github.com/Jannchie/llm-pricing), covering 8000+ entries, so a new model is priced the day it ships — and when a local magpie gateway is configured, magpie's own price list is consulted first, because that is the price the gateway actually bills.
 
 **Price is a timeline, not a number.** The others compute a cost and store it (or recompute at today's price), so history goes wrong the moment a vendor changes its rates or a call crosses a peak/off-peak boundary. dsh-bill prices each call at that call's own instant, and never recomputes history.
 
@@ -67,7 +67,8 @@ The sample is the cost-related plugins under the GitHub `dsh-plugin` topic with 
 
 ## Pricing
 
-- two catalogues, models.dev and OpenRouter, cached for 24h and written to disk, falling back to a built-in historical snapshot on failure;
+- the catalogue is a local magpie gateway's own price list when one is configured — the gateway is what the calls go through, so its quote is what it bills — then models.dev and OpenRouter, cached for 24h and written to disk, falling back to a built-in historical snapshot on failure;
+- a long-context tier is chosen per request: a call whose prompt crosses a model's threshold is billed at that tier's rates, the way the vendor bills it;
 - DeepSeek's own direct rates override the catalogue, and the peak / off-peak rate is chosen from the call's timestamp;
 - a prompt-cache write is priced at the lifetime the provider reports it bought: when the usage report carries `cacheWrite1hTokens` (the one-hour share of `cacheWriteTokens`, which Anthropic returns for a route that asks for the long cache), that share is billed as a one-hour write and the rest as a five-minute write; without it every write is a five-minute write;
 - model names are normalised, and anything that still fails to match is flagged `?` and excluded from totals — nothing is estimated;
@@ -90,7 +91,7 @@ The session log holds token counts and model routes but **not the request bodies
 
 The budget, its currency, the display currency shared by every figure, and which surfaces are shown are all set on the **Cost** page in settings, and stored in `$DSH_HOME/dsh-bill/prefs.json`. The two currencies are separate settings: the budget's is the promise ("¥100 a month") and does not follow the display. (Not in the harness's own settings document: its API proxy serves a fixed allowlist of namespaces to the browser, so a plugin's namespace is never readable or writable from there.)
 
-`maxRecords` (the in-memory ring buffer size, default 20000), `agentTool` (register `bill_stats`, default `true`), `backfillTimeoutMs` (the total budget for the boot-time history import, default 60000), `rateCurrency` (one ISO currency code, such as `USD`, to show every model's base rate in instead of its vendor's own list currency — useful when you buy DeepSeek on its international platform, which bills in USD), `dshHome` (the harness home to keep the store under instead of `$DSH_HOME` — the same option the harness's own stores take, for a process that hosts several harness instances, each with its own spend) and `priceOverrides` are plugin config and are validated at startup — a mistyped field is reported by name rather than leaving the report quietly empty. `~/.dsh/profiles/web/cordis.patch.yml` is only needed when you want to override a price:
+`maxRecords` (the in-memory ring buffer size, default 20000), `agentTool` (register `bill_stats`, default `true`), `backfillTimeoutMs` (the total budget for the boot-time history import, default 60000), `rateCurrency` (one ISO currency code, such as `USD`, to show every model's base rate in instead of its vendor's own list currency — useful when you buy DeepSeek on its international platform, which bills in USD), `dshHome` (the harness home to keep the store under instead of `$DSH_HOME` — the same option the harness's own stores take, for a process that hosts several harness instances, each with its own spend), `magpieUrl` (where a local magpie gateway answers, default `http://127.0.0.1:3425/v1/models`; `false` prices from models.dev alone) with its optional `magpieKey` (only needed for a magpie on another machine that shares its prices), and `priceOverrides` are plugin config and are validated at startup — a mistyped field is reported by name rather than leaving the report quietly empty. `~/.dsh/profiles/web/cordis.patch.yml` is only needed when you want to override a price:
 
 ```yaml
 - insert:
@@ -109,7 +110,7 @@ The budget, its currency, the display currency shared by every figure, and which
 
 - each call's provider / model / token usage and attributed amounts are written to `$DSH_HOME/dsh-bill/records.jsonl` (a 20 000-entry ring buffer; older entries are folded into a rollup);
 - the API key used for the account balance is read and used host-side and never reaches the browser;
-- nothing is sent anywhere except the price catalogues, the exchange-rate endpoint, and the balance query; no conversation content is stored.
+- nothing is sent anywhere except the price catalogues (models.dev, OpenRouter, and a magpie gateway you configure), the exchange-rate endpoint, and the balance query; no conversation content is stored.
 
 ## Implementation
 
