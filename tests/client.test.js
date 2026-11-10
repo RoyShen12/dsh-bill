@@ -469,6 +469,33 @@ if (chartBlock) {
     && lib.niceCeil(41) === 50 && lib.niceCeil(0) === 1, 'the scale rounds up to a round step × 10ⁿ')
 }
 
+console.log('dock panel models')
+// The panel reports what the conversation cost, and a delegated agent usually
+// runs a different model than its parent, so the list is the two by-model
+// tables merged. The merge is arithmetic, so it is lifted out and run here.
+const mergeSrc = /\n    function mergeModels\(own, delegated\) \{[\s\S]*?\n    \}\n/.exec(source)
+assert(mergeSrc !== null, 'the dock panel merges its model tables in one helper')
+if (mergeSrc) {
+  const mergeModels = new Function(mergeSrc[0] + '\nreturn mergeModels')()
+  const merged = mergeModels(
+    [{ provider: 'p', model: 'm-main', displayName: 'Main', usd: 1, calls: 2, peakUsd: 0, offPeakUsd: 1 }],
+    [
+      { provider: 'p', model: 'm-main', displayName: 'Main', usd: 2, calls: 3, peakUsd: 2, offPeakUsd: 0 },
+      { provider: 'p', model: 'm-sub', displayName: null, usd: 5, calls: 1, peakUsd: 0, offPeakUsd: 0 },
+    ])
+  assert(merged.length === 2, 'one row per model, whichever session paid (got ' + merged.length + ')')
+  assert(merged[0].model === 'm-sub', 'the merged list stays sorted by spend')
+  const shared = merged.find((row) => row.model === 'm-main')
+  assert(shared.usd === 3 && shared.calls === 5 && shared.peakUsd === 2 && shared.offPeakUsd === 1,
+    'a model both sides ran folds into one row (got ' + JSON.stringify(shared) + ')')
+  const onlyDelegated = mergeModels([], [{ provider: 'p', model: 'm-sub', usd: 2 }])
+  assert(onlyDelegated.length === 1 && onlyDelegated[0].model === 'm-sub', 'a delegated-only model still lists')
+}
+// The panel's other figures cover the same bill as the headline.
+assert(/fmtInt\(totalCalls\)/.test(source), 'the call count includes the delegated calls')
+assert(/mergeModels\(d\.byModel, sub && sub\.byModel\)/.test(source), 'the panel lists the merged model table')
+assert(/var settledTotal = settledUsd \+ delegatedUsd/.test(source), 'the per-call average uses the settled bill including delegates')
+
 console.log('dictionaries')
 // The dictionaries are module-private, so their keys are read off the source.
 function dictKeys(name) {
