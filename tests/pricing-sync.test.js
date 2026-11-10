@@ -34,12 +34,14 @@ const URL = 'http://127.0.0.1:3999/v1/models'
 const FIRST = { data: [{ id: 'bp/known', display_name: 'Known', owned_by: 'bp', magpie_price: { input: 1, output: 2, cache_read: 0.1, cache_write: 1 } }] }
 const SECOND = { data: [...FIRST.data, { id: 'late/model', display_name: 'Late', owned_by: 'late', magpie_price: { input: 8, output: 40, cache_read: 0.2, cache_write: 10 } }] }
 const hits = { magpie: 0, dev: 0 }
+// Set for the tick at the end; the fetch returns it instead of the sequence.
+let overrideList = null
 
 const savedFetch = globalThis.fetch
 globalThis.fetch = async (input) => {
   const url = String(input)
   let body = JSON.stringify({ rates: { USD: 1 } })
-  if (url === URL) { hits.magpie++; body = JSON.stringify(hits.magpie === 1 ? FIRST : SECOND) }
+  if (url === URL) { hits.magpie++; body = JSON.stringify(overrideList ?? (hits.magpie === 1 ? FIRST : SECOND)) }
   else if (url.includes('models.dev')) { hits.dev++; body = JSON.stringify({}) }
   else if (url.includes('openrouter')) body = JSON.stringify({ data: [] })
   return { ok: true, text: async () => body, json: async () => JSON.parse(body) }
@@ -54,7 +56,16 @@ const ctx = {
   on: (name, fn) => { if (name === 'llm/stream') instance.stream = fn },
   inject: (names, apply) => { if (names.every((n) => services[n])) apply(ctx) },
 }
-plugin.apply(ctx, { magpieUrl: URL })
+// The plugin's price tick is a real interval; capture it instead of letting
+// it run, so the test drives the one tick it wants to see.
+const savedSetInterval = globalThis.setInterval
+let tick = null
+globalThis.setInterval = (fn, ms) => { tick = { fn, ms }; return { unref() {} } }
+try {
+  plugin.apply(ctx, { magpieUrl: URL })
+} finally {
+  globalThis.setInterval = savedSetInterval
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 async function until(check, ms = 3000) {
@@ -120,6 +131,24 @@ try {
   assert(hits.magpie === bootHits + 1, 'a miss inside the throttle does not fetch again (' + (hits.magpie - bootHits) + ')')
   const stuck = stored().find((r) => r.sessionId === 'unpriced')
   assert(stuck && stuck.priced === false, 'and the row stays honestly unpriced')
+
+  // The tick is what keeps the hourly window honest with no dashboard open.
+  console.log('a slow tick refreshes the list on its own')
+  assert(tick && tick.ms === 5 * 60 * 1000, 'the plugin installs a five-minute price tick')
+  overrideList = { data: [...SECOND.data, { id: 'never/model', display_name: 'Never', owned_by: 'never', magpie_price: { input: 5, output: 10, cache_read: 0.5, cache_write: 5 } }] }
+  const realNow = Date.now
+  Date.now = () => realNow() + 2 * 60 * 60 * 1000
+  try {
+    tick.fn()
+    assert(await until(() => {
+      const row = stored().find((r) => r.sessionId === 'unpriced')
+      return row && row.priced === true
+    }), 'the tick prices the row left blank, with no request involved')
+  } finally {
+    Date.now = realNow
+  }
+  const ticked = stored().find((r) => r.sessionId === 'unpriced')
+  assert(Math.abs(ticked.usd - 5) < 1e-9, 'at the rate the list now quotes (got ' + ticked.usd + ')')
 } finally {
   globalThis.fetch = savedFetch
   fs.rmSync(HOME, { recursive: true, force: true })
