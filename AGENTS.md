@@ -23,4 +23,4 @@
 
 ## 验证
 
-`npm run check`（每个 lib 文件 `node --check`）与 `npm test`（15 个测试脚本 + 中英 README 对齐）。装配核对用 `cordis_inspect_query` 的 `Config.listConfigs` 与 `Slots.listSubTree`，细节见集中文档。
+`npm run check`（每个 lib 文件 `node --check`）与 `npm test`（16 个测试脚本 + 中英 README 对齐）。装配核对用 `cordis_inspect_query` 的 `Config.listConfigs` 与 `Slots.listSubTree`，细节见集中文档。

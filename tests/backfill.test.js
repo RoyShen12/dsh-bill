@@ -103,6 +103,7 @@ function fakeSessionQuery(sessions, { hang = false, hangIds = [], slowIds = [], 
       const session = sessions.find((s) => s.id === id)
       return {
         events: session?.events ?? [],
+        ...(session?.inherited === undefined ? {} : { inheritedEventCount: session.inherited }),
         [Symbol.dispose]() {},
       }
     },
@@ -158,6 +159,35 @@ console.log('history import')
   await waitFor(() => (sq2.listings.count >= 1 ? true : null))
   await sleep(400)
   assert(readRecords().length === before, 'second boot imports nothing (bySession covers the session)')
+}
+
+// ── inherited prefix: a forked session does not re-bill its source ───────────
+// A fork's log opens with a copy of the source's events, usage and all. Those
+// calls were billed to the source session; importing them again would charge
+// the same money twice, which is why the import starts at the inherited cut.
+console.log('inherited prefix')
+{
+  const own = {
+    type: 'assistant/message', seq: 3, time: 2000,
+    data: {
+      turn: 1, step: 1,
+      usage: { inputTokens: 5, outputTokens: 6, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0 },
+      message: { source: { provider: 'p-own', model: 'm-own' } },
+    },
+  }
+  const fork = {
+    id: 'sess-fork',
+    inherited: 3,
+    events: [...USAGE_EVENTS, { type: 'session/end-seed', seq: 2, time: 1000, data: { inherited: true } }, own],
+  }
+  boot({ maxRecords: 10 }, fakeSessionQuery([fork]))
+  const records = await waitFor(() => {
+    const r = readRecords().filter((x) => x.sessionId === 'sess-fork')
+    return r.length > 0 ? r : null
+  })
+  assert(records.length === 1, `only the own usage sample is imported (got ${records.length})`)
+  assert(records[0].time === 2000, 'the imported sample is the own one, not the inherited copy')
+  assert(records[0].model === 'm-own', 'the inherited request/header did not leak into the record')
 }
 
 // ── per-session rejection: corrupt sessions are skipped, not fatal ───────────

@@ -402,9 +402,13 @@ if (labelBody) {
   assert(hours >= 0 && allTime >= 0 && hours < allTime,
     'hours are read before the all-time fallback a dayless window would take')
 }
-// A session's tab has no window and no forecast, so its total carries no hint:
-// the fallback "rate" there is the total divided by one, said twice.
-assert(/hint: sessionScope \? '' : totalHint/.test(source), 'a session total carries no window hint')
+// A session's tab has no window and no forecast, so its total quotes no rate:
+// the fallback "rate" there is the total divided by one, said twice. What it
+// does say is how many delegated sessions the figure folds in.
+assert(/hint: sessionScope[\s\S]{0,240}?kpi\.delegated/.test(source),
+  'a session total names its delegated sessions')
+assert(!/hint: sessionScope \? totalHint/.test(source),
+  'a session total quotes no window rate')
 // A window under a week has no rate worth extrapolating a month from.
 assert(/forecastable && fc && fc\.per30dUsd > 0/.test(source), 'the monthly estimate is gated on a long enough window')
 // A day or less is drawn from the hourly series the host already sends.
