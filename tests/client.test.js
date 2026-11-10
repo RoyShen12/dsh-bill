@@ -339,14 +339,8 @@ const flat = css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/@media[^{]*\{/g, '')
 const selectors = [...flat.matchAll(/([^{}]+)\{/g)]
   .flatMap((m) => m[1].split(','))
   .map((s) => s.trim()).filter(Boolean)
-// One deliberate exception: the dock row belongs to the shell, and the only
-// way to pin the cost pill to its right edge is to address the row that holds
-// it. The :has() guard keeps that rule off rows where this plugin renders
-// nothing, so a host with the surface switched off keeps its own layout.
-const HOST_ROW = '[data-composer-dock]:has(.dshbill-dock)'
-const foreign = selectors.filter((s) => !s.startsWith('.dshbill-') && s !== HOST_ROW)
+const foreign = selectors.filter((s) => !s.startsWith('.dshbill-'))
 assert(foreign.length === 0, 'every selector is scoped to .dshbill-*: ' + foreign.join(' | '))
-assert(selectors.includes(HOST_ROW), 'the one host-scoped selector is the :has()-guarded dock row')
 // Hover without focus-visible is a mouse-only affordance; the shipped controls
 // carry both, and a keyboard user must be able to see where they are.
 assert(/:hover/.test(css) && /:focus-visible/.test(css), 'declares both hover and focus-visible states')
