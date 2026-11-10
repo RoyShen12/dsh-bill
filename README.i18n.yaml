@@ -2,5 +2,5 @@
 # last confirmed-consistent state. Both languages carry equal authority; after
 # editing either side, bring the other along and re-record with:
 #   npm run docs:pair -- --write
-README.md: 888d5dd61483171cc982dd81f1f00a408fcd5a39
-README.zh.md: ae9663246f3537485931757cf84a7d8003e188d7
+README.md: 4b3ba49f9201f9d649d695ec73864f542fa9f78f
+README.zh.md: 3e60fb12a760d2747f5adf9718f453c176892778

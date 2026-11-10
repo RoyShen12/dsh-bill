@@ -190,5 +190,76 @@ console.log('catalogue: magpie is re-read hourly, models.dev is not')
   }
 }
 
+console.log('catalogue: an unpriced call re-reads the list')
+{
+  // Same isolation as the refresh test: a scratch TMPDIR makes every fetch
+  // below a miss rather than a copy on disk, and a frozen clock decides what
+  // "the fetch landed at" means.
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-bill-magpie-miss-'))
+  const savedTmpdir = process.env.TMPDIR
+  const savedFetch = globalThis.fetch
+  const savedNow = Date.now
+  process.env.TMPDIR = scratch
+
+  // A model magpie starts pricing after this plugin read its list — the shape
+  // of the 2026-11-10 Claude Fable 5.2 additions.
+  const LATE = model('late/model', { input: 8, output: 40, cache_read: 0.2, cache_write: 10 })
+  const BEFORE = JSON.stringify(FIXTURE)
+  const AFTER = JSON.stringify({ data: [...FIXTURE.data, LATE] })
+  const hits = { magpie: 0, dev: 0 }
+  const at = Date.parse('2026-11-09T12:00:00Z') // a Monday, off-peak
+  let clock = at
+  // Its own URL, so this block gets its own catalogues: catalogFor keys them
+  // by configuration, and the hourly block above already owns the default one.
+  const LOCAL_URL = 'http://127.0.0.1:3999/v1/models'
+
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    let body = JSON.stringify({ data: [] })
+    if (url === LOCAL_URL) { hits.magpie++; body = hits.magpie === 1 ? BEFORE : AFTER }
+    else if (url.includes('models.dev')) { hits.dev++; body = JSON.stringify({ magpieprobe: { models: {} } }) }
+    return { ok: true, text: async () => body }
+  }
+  Date.now = () => clock
+
+  try {
+    const { createPricing } = await import('../lib/pricing.js')
+    const pricing = createPricing({ magpieUrl: LOCAL_URL })
+    await pricing.ensurePricingLoaded()
+    assert(hits.magpie === 1 && hits.dev === 1, 'the catalogues load once, from both sources')
+
+    const rec = { model: 'late/model', time: at, inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
+    assert(pricing.priceRecord(rec).priced === false, 'a model the list does not carry yet is unpriced')
+
+    clock = at + 60 * 1000
+    assert(await pricing.syncPrices() === true, "a miss forces magpie's list to be re-read")
+    assert(hits.magpie === 2, 'exactly one extra fetch (' + hits.magpie + ')')
+    assert(hits.dev === 1, 'models.dev keeps its own clock (' + hits.dev + ')')
+
+    const now = pricing.priceRecord({ ...rec })
+    assert(now.priced === true && Math.abs(now.usd - 8) < 1e-9, "the same call prices at the list's new rate (got " + now.usd + ')')
+
+    assert(await pricing.syncPrices() === false, 'a second miss inside the throttle does not fetch again')
+    assert(hits.magpie === 2, 'still two fetches (' + hits.magpie + ')')
+
+    clock = at + 7 * 60 * 1000
+    assert(await pricing.syncPrices() === true, 'after the throttle a miss re-reads again')
+    assert(hits.magpie === 3, 'and that is the third fetch (' + hits.magpie + ')')
+  } finally {
+    globalThis.fetch = savedFetch
+    Date.now = savedNow
+    if (savedTmpdir === undefined) delete process.env.TMPDIR
+    else process.env.TMPDIR = savedTmpdir
+    fs.rmSync(scratch, { recursive: true, force: true })
+  }
+}
+
+console.log('syncPrices: nothing to sync without a magpie')
+{
+  const { createPricing } = await import('../lib/pricing.js')
+  const pricing = createPricing()
+  assert(await pricing.syncPrices() === false, 'models.dev alone has no list to re-read on a miss')
+}
+
 console.log(failed === 0 ? '\nALL PASSED' : `\n${failed} FAILED`)
 process.exit(failed === 0 ? 0 : 1)

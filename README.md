@@ -67,7 +67,7 @@ The sample is the cost-related plugins under the GitHub `dsh-plugin` topic with 
 
 ## Pricing
 
-- the catalogue is a local magpie gateway's own price list when one is configured — the gateway is what the calls go through, so its quote is what it bills — then models.dev and OpenRouter; each is cached to disk, magpie's list for an hour and models.dev's for a day, falling back to a built-in historical snapshot on failure;
+- the catalogue is a local magpie gateway's own price list when one is configured — the gateway is what the calls go through, so its quote is what it bills — then models.dev and OpenRouter; each is cached to disk, magpie's list for an hour and models.dev's for a day, falling back to a built-in historical snapshot on failure; a model nothing prices re-reads magpie's list right away (throttled to once every five minutes) and fills in the amounts still left blank;
 - a long-context tier is chosen per request: a call whose prompt crosses a model's threshold is billed at that tier's rates, the way the vendor bills it;
 - DeepSeek's own direct rates override the catalogue, and the peak / off-peak rate is chosen from the call's timestamp;
 - a prompt-cache write is priced at the lifetime the provider reports it bought: when the usage report carries `cacheWrite1hTokens` (the one-hour share of `cacheWriteTokens`, which Anthropic returns for a route that asks for the long cache), that share is billed as a one-hour write and the rest as a five-minute write; without it every write is a five-minute write;
