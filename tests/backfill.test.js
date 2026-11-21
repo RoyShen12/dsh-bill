@@ -12,6 +12,7 @@
  * Run: node tests/backfill.test.js
  */
 import fs from 'node:fs'
+import { Readable } from 'node:stream'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -112,7 +113,8 @@ function fakeSessionQuery(sessions, { hang = false, hangIds = [], slowIds = [], 
 
 /** Boot one plugin instance against the shared temp HOME. */
 function boot(config, sessionQuery) {
-  const services = { sessionQuery, webServer: { register: () => {} } }
+  let handler
+  const services = { sessionQuery, webServer: { register: (route) => { handler = route.handler } } }
   const ctx = {
     ...services,
     effect: (fn) => fn(),
@@ -121,7 +123,12 @@ function boot(config, sessionQuery) {
     inject: (names, apply) => { if (names.every((n) => services[n])) apply(ctx) },
   }
   plugin.apply(ctx, config)
-  return ctx
+  return async (body) => {
+    const req = Readable.from([JSON.stringify(body)])
+    let result
+    await handler(req, { writeHead() {}, end(text) { result = JSON.parse(text) } })
+    return result
+  }
 }
 
 const readRecords = () => {
@@ -260,6 +267,37 @@ console.log('missing observeSession')
   await sleep(500)
   assert(sq.listings.count === 0, 'a session-query without observeSession is never listed')
   assert(readRecords().length === before, 'a session-query without observeSession skips the import')
+}
+
+// A legacy compacted rollup cannot identify which sessions it already contains.
+console.log('legacy archive is not replayed after reload')
+{
+  const dshHome = fs.mkdtempSync(path.join(HOME, 'archived-'))
+  const billDir = path.join(dshHome, 'dsh-bill')
+  const ringFile = path.join(billDir, 'records.jsonl')
+  const rollupFile = path.join(billDir, 'rollup.json')
+  const archived = { calls: 1, usd: 0.25, fileSkip: 0 }
+  const active = { sessionId: 'sess-active', time: 2000, usd: 0.5 }
+  fs.mkdirSync(billDir)
+  fs.writeFileSync(rollupFile, JSON.stringify(archived))
+  fs.writeFileSync(ringFile, JSON.stringify(active) + '\n')
+  fs.utimesSync(ringFile, 1, 1)
+  const sq = fakeSessionQuery([{ id: 'sess-already-archived', events: USAGE_EVENTS }])
+  const ask = boot({ dshHome, maxRecords: 1 }, sq)
+  // The startup rewrite means the new instance has loaded the existing store.
+  await waitFor(() => fs.statSync(ringFile).mtimeMs > 1000)
+  const rollup = JSON.parse(fs.readFileSync(rollupFile, 'utf8'))
+  const ring = fs.readFileSync(ringFile, 'utf8').trim().split('\n').map(JSON.parse)
+  assert(sq.listings.count === 0, 'history import does not list sessions when archived calls cannot be deduplicated')
+  assert(rollup.calls + ring.length === 2 && rollup.usd + ring[0].usd === 0.75, 'archived and active totals survive reload without being added twice')
+
+  const sessionId = 'sess-already-archived'
+  const popup = await ask({ action: 'session-cost', sessionId })
+  const report = await ask({ action: 'dashboard', sessionId, rangeDays: 0 })
+  const account = await ask({ action: 'dashboard', rangeDays: 0 })
+  assert(popup.calls === 1 && popup.cacheReadTokens === 2 && popup.byModel[0]?.model === 'm-src', 'the popup recovers tokens and models from the archived session log')
+  assert(report.calls === 1 && report.byModel[0]?.model === 'm-src', 'the session report uses the same recovered details')
+  assert(account.calls === 2 && account.totalUsd === 0.75, 'reading archived session details does not add them a second time to account totals')
 }
 
 if (failed) {
