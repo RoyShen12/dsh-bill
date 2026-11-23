@@ -66,6 +66,17 @@ assert(shellProgram('{"command":"sudo rg foo"}') === 'rg', 'sudo skipped')
 assert(shellProgram('{"command":"FOO=1 pnpm test"}') === 'pnpm', 'env prefix skipped')
 assert(shellProgram('{"command":"/usr/bin/node x.js"}') === 'node', 'path stripped')
 assert(shellProgram('not json') === null, 'unparseable command falls back to the tool name')
+const powershell = (command) => shellProgram(JSON.stringify({ command }), 'pwsh')
+assert(powershell('Get-ChildItem') === 'Get-ChildItem', 'PowerShell cmdlet')
+assert(powershell(String.raw`C:\Git\bin\Git.EXE status`) === 'git', 'Windows executable name normalized')
+assert(powershell(String.raw`& 'C:\Program Files\Git\bin\git.exe' status`) === 'git', 'quoted PowerShell invocation')
+assert(powershell('& $program status') === null, 'dynamic invocation falls back to pwsh')
+const pwshOptions = structuredClone(options)
+const pwshCall = pwshOptions.messages[2].content[3]
+pwshCall.name = 'pwsh'
+pwshCall.arguments = JSON.stringify({ command: String.raw`& "C:\Program Files\Git\bin\git.exe" diff` })
+const gitSegments = segmentsOf(pwshOptions).filter((s) => s.cat === 'terminal' && s.sub === 'git')
+assert(gitSegments.length === 2 && gitSegments.some((s) => s.chars === 800), 'PowerShell calls and their results share one program bucket')
 
 console.log('cost attribution')
 const rates = ratesFor('deepseek-v4-pro', Date.UTC(2026, 7, 15))
