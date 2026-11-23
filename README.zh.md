@@ -14,11 +14,21 @@ DSH(DeepSeek Harness)的费用统计插件。每轮对话下面看这轮花了�
 
 ## 安装
 
-```bash
-dsh plugin --profile web add dsh-bill
+**桌面版（Windows 或 macOS）：** 打开应用的「插件」页安装 `dsh-bill`。如果用 `dsh` 命令行，先打开一次桌面应用以初始化配置，然后彻底退出，运行以下命令，再重新打开应用：
+
+```powershell
+dsh plugin --profile desktop add dsh-bill
 ```
 
-重启 `dsh web` 生效。
+上述命令安装 npm 仓库中的发行版。如果要从 PowerShell 安装本地检出的版本，在检出目录下运行（需要 `npm` 和 `dsh` 已加入 PATH）：
+
+```powershell
+$archive = npm pack --silent
+if ($LASTEXITCODE -ne 0) { throw 'npm pack failed' }
+dsh plugin --profile desktop add "file:$((Resolve-Path -LiteralPath $archive).Path)"
+```
+
+**Web 命令行版：** 运行 `dsh plugin --profile web add dsh-bill`，然后重启 `dsh web`。
 
 ## 功能
 

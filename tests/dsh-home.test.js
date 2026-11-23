@@ -97,6 +97,7 @@ console.log('a configured path is spelled as the harness spells it')
 assert(resolveDshHome(ALICE) === ALICE, 'an absolute path is used as is')
 assert(resolveDshHome('~') === os.homedir(), '~ is the OS home')
 assert(resolveDshHome('~/.dsh-alice') === path.join(os.homedir(), '.dsh-alice'), '~/ is under the OS home')
+assert(resolveDshHome('~\\.dsh-alice') === path.join(os.homedir(), '.dsh-alice'), '~\\ is under the OS home')
 assert(resolveDshHome('homes/alice') === path.resolve('homes/alice'), 'a relative path is resolved against the cwd')
 assert(resolveDshHome() === SHARED, 'without one, $DSH_HOME applies')
 process.env.DSH_HOME = '  '

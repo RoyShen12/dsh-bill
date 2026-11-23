@@ -14,11 +14,21 @@ Cost tracking for DSH (DeepSeek Harness). A line under each turn tells you what 
 
 ## Install
 
-```bash
-dsh plugin --profile web add dsh-bill
+**Desktop (Windows or macOS):** Open the app's **Plugins** page and install `dsh-bill` there. If you use the `dsh` CLI instead, open the desktop app once to initialize its profile, then quit it fully before running this command and reopening the app:
+
+```powershell
+dsh plugin --profile desktop add dsh-bill
 ```
 
-Restart `dsh web` to pick it up.
+The command above installs the registry release. To install a local checkout from PowerShell, run this in its root instead (requires `npm` and `dsh` on your PATH):
+
+```powershell
+$archive = npm pack --silent
+if ($LASTEXITCODE -ne 0) { throw 'npm pack failed' }
+dsh plugin --profile desktop add "file:$((Resolve-Path -LiteralPath $archive).Path)"
+```
+
+**Web CLI:** Run `dsh plugin --profile web add dsh-bill`, then restart `dsh web`.
 
 ## Features
 

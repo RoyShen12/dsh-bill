@@ -11,6 +11,9 @@ import path from 'node:path'
 import { PricingCatalog } from 'llm-pricing'
 import { DEFAULT_MAGPIE_URL, magpieModelsUrl, magpieSource, withMagpiePrices } from '../lib/magpie.js'
 
+// os.tmpdir() consults TEMP on Windows and TMPDIR on POSIX.
+const TEMP_ENV = process.platform === 'win32' ? 'TEMP' : 'TMPDIR'
+
 let failed = 0
 function assert(cond, msg) {
   if (cond) console.log('  ok -', msg)
@@ -135,14 +138,14 @@ console.log('catalogue: pricing through the source')
 
 console.log('catalogue: magpie is re-read hourly, models.dev is not')
 {
-  // The plugin keeps its catalogue caches on disk; pointing TMPDIR at a fresh
+  // The plugin keeps its catalogue caches on disk; using a fresh temp
   // directory (before the module is imported, so the module-level pricing gets
   // it too) means every fetch below is a miss rather than last run's copy.
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-bill-magpie-refresh-'))
-  const savedTmpdir = process.env.TMPDIR
+  const savedTmpdir = process.env[TEMP_ENV]
   const savedFetch = globalThis.fetch
   const savedNow = Date.now
-  process.env.TMPDIR = scratch
+  process.env[TEMP_ENV] = scratch
 
   const DEV_BODY = JSON.stringify({
     magpieprobe: { models: { 'plain/model': { cost: { input: 1.5, output: 3 }, name: 'Resale probe' } } },
@@ -184,22 +187,22 @@ console.log('catalogue: magpie is re-read hourly, models.dev is not')
   } finally {
     globalThis.fetch = savedFetch
     Date.now = savedNow
-    if (savedTmpdir === undefined) delete process.env.TMPDIR
-    else process.env.TMPDIR = savedTmpdir
+    if (savedTmpdir === undefined) delete process.env[TEMP_ENV]
+    else process.env[TEMP_ENV] = savedTmpdir
     fs.rmSync(scratch, { recursive: true, force: true })
   }
 }
 
 console.log('catalogue: an unpriced call re-reads the list')
 {
-  // Same isolation as the refresh test: a scratch TMPDIR makes every fetch
+  // Same isolation as the refresh test: a scratch temp directory makes every fetch
   // below a miss rather than a copy on disk, and a frozen clock decides what
   // "the fetch landed at" means.
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-bill-magpie-miss-'))
-  const savedTmpdir = process.env.TMPDIR
+  const savedTmpdir = process.env[TEMP_ENV]
   const savedFetch = globalThis.fetch
   const savedNow = Date.now
-  process.env.TMPDIR = scratch
+  process.env[TEMP_ENV] = scratch
 
   // A model magpie starts pricing after this plugin read its list — the shape
   // of the 2026-11-10 Claude Fable 5.2 additions.
@@ -248,8 +251,8 @@ console.log('catalogue: an unpriced call re-reads the list')
   } finally {
     globalThis.fetch = savedFetch
     Date.now = savedNow
-    if (savedTmpdir === undefined) delete process.env.TMPDIR
-    else process.env.TMPDIR = savedTmpdir
+    if (savedTmpdir === undefined) delete process.env[TEMP_ENV]
+    else process.env[TEMP_ENV] = savedTmpdir
     fs.rmSync(scratch, { recursive: true, force: true })
   }
 }

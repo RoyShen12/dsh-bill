@@ -13,13 +13,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const HOME = path.join(os.tmpdir(), 'dsh-bill-pricing-sync-test')
-fs.rmSync(HOME, { recursive: true, force: true })
+const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-bill-pricing-sync-'))
+const HOME = path.join(ROOT, 'home')
 process.env.DSH_HOME = HOME
 // Its own catalogue cache: a fetch below must be a miss, not last run's copy.
-const CACHE = path.join(os.tmpdir(), 'dsh-bill-pricing-sync-cache')
-fs.rmSync(CACHE, { recursive: true, force: true })
-process.env.TMPDIR = CACHE
+process.env[process.platform === 'win32' ? 'TEMP' : 'TMPDIR'] = path.join(ROOT, 'cache')
 
 const { default: plugin } = await import('../lib/index.js')
 
@@ -151,8 +149,7 @@ try {
   assert(Math.abs(ticked.usd - 5) < 1e-9, 'at the rate the list now quotes (got ' + ticked.usd + ')')
 } finally {
   globalThis.fetch = savedFetch
-  fs.rmSync(HOME, { recursive: true, force: true })
-  fs.rmSync(CACHE, { recursive: true, force: true })
+  fs.rmSync(ROOT, { recursive: true, force: true })
 }
 
 console.log(failed === 0 ? '\nALL PASSED' : `\n${failed} FAILED`)
